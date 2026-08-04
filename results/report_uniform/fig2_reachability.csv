@@ -1,0 +1,6 @@
+model,trials,opportunities,silent
+deeplabv3_mnv2_pascal_quant.tflite,150,0,58
+efficientdet_lite0_320_ptq.tflite,240,60,86
+mobilenet_v2_1.0_224_quant.tflite,150,1,28
+movenet_single_pose_lightning_ptq.tflite,150,0,70
+ssd_mobilenet_v2_coco_quant_postprocess.tflite,240,59,62

@@ -1,0 +1,4 @@
+numpy==1.26.4
+pillow==11.3.0
+pycoral==2.0.0
+tflite-runtime==2.5.0.post1

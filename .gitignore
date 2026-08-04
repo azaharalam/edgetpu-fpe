@@ -1,0 +1,8 @@
+test_data/
+opmaps/
+inputs/
+*.npy
+*_edgetpu.tflite
+*_edgetpu.log
+__pycache__/
+*.pyc
