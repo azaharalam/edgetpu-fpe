@@ -1,3 +1,0 @@
-model,trials,opportunities,silent
-efficientdet_lite0_320_ptq.tflite,240,60,34
-ssd_mobilenet_v2_coco_quant_postprocess.tflite,240,87,58

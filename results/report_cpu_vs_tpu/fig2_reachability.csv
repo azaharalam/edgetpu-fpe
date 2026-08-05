@@ -1,3 +1,0 @@
-model,trials,opportunities,silent
-ssd_mobilenet_v2_coco_quan [cpu],240,87,58
-ssd_mobilenet_v2_coco_quan [tpu],210,99,75

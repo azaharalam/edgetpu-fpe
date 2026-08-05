@@ -1,7 +1,0 @@
-model,mechanism,k,n,rate,ci_lo,ci_hi
-ssd_mobilenet_v2_coc… [tpu],det_flags,99,99,1.0,0.9626454664260378,1.0
-ssd_mobilenet_v2_coc… [tpu],det_scan,96,99,0.9696969696969697,0.9146617688347427,0.9896415481109291
-ssd_mobilenet_v2_coc… [tpu],det_output_only,24,99,0.24242424242424243,0.16866173936129492,0.3354299900555947
-efficientdet_lite0_3… [tpu],det_flags,92,92,1.0,0.9599171967079014,1.0
-efficientdet_lite0_3… [tpu],det_scan,92,92,1.0,0.9599171967079014,1.0
-efficientdet_lite0_3… [tpu],det_output_only,32,92,0.34782608695652173,0.2583761177694167,0.44947517018904803

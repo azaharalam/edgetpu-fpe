@@ -1,8 +1,27 @@
+# models and generated inputs
 test_data/
-opmaps/
 inputs/
-*.npy
+opmaps/
 *_edgetpu.tflite
 *_edgetpu.log
+*.npy
+
+# generated figures
+figs/
+*.pdf
+*.png
+*.svg
+
+# generated reports (regenerated from results/campaigns/)
+results/report_*/
+
+# python
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
+
+# editor and os
+.vscode/
+.idea/
+.DS_Store
+results/overhead.txt
