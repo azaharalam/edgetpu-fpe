@@ -58,10 +58,10 @@ MEANINGFUL = ("invalid", "divbyzero", "overflow", "underflow")
 # child-process detector
 # ---------------------------------------------------------------------------
 
-def detect_worker(model_path, input_path, seed, outfile):
+def detect_worker(model_path, input_path, seed, outfile, device="cpu"):
     """Run one instrumented inference; write flags + scan summary as JSON."""
     import ctypes, platform
-    from tflite_runtime.interpreter import Interpreter
+    from tflite_runtime.interpreter import Interpreter, load_delegate
 
     m = platform.machine()
     if m in ("aarch64", "armv7l", "armv8l"):
@@ -74,7 +74,12 @@ def detect_worker(model_path, input_path, seed, outfile):
         fe_all = 0x3F
     libm = ctypes.CDLL("libm.so.6")
 
+    # A compiled model needs the delegate to resolve edgetpu-custom-op.
+    # preserve_all_tensors works under delegation, but the fused partition
+    # collapses to one op, so far fewer tensors remain observable.
+    delegates = [load_delegate("libedgetpu.so.1")] if device == "tpu" else []
     interp = Interpreter(model_path=model_path,
+                         experimental_delegates=delegates,
                          experimental_preserve_all_tensors=True)
     interp.allocate_tensors()
     rng = np.random.default_rng(seed)
@@ -121,11 +126,12 @@ def detect_worker(model_path, input_path, seed, outfile):
                    "outputs": outputs}, fh)
 
 
-def run_detect(model_path, input_path, seed, workdir):
+def run_detect(model_path, input_path, seed, workdir, device="cpu"):
     """Invoke the detector in a child process; classify failures."""
     outfile = os.path.join(workdir, "det.json")
     cmd = [sys.executable, os.path.abspath(__file__), "--_worker",
-           "--model", model_path, "--seed", str(seed), "--outfile", outfile]
+           "--model", model_path, "--seed", str(seed), "--outfile", outfile,
+           "--device", device]
     if input_path:
         cmd += ["--input", input_path]
     try:
@@ -248,6 +254,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--only", help="comma-separated tensor indices to target "
                                    "for scale/zero-point faults")
+    ap.add_argument("--device", choices=["cpu", "tpu"], default="cpu",
+                    help="tpu requires a compiled *_edgetpu.tflite model")
     ap.add_argument("--json")
     ap.add_argument("--csv")
     # hidden worker mode
@@ -256,7 +264,8 @@ def main():
     args = ap.parse_args()
 
     if args._worker:
-        detect_worker(args.model, args.input, args.seed, args.outfile)
+        detect_worker(args.model, args.input, args.seed, args.outfile,
+                      args.device)
         return
 
     if not args.model:
@@ -265,7 +274,8 @@ def main():
     rng = np.random.default_rng(args.seed)
     work = tempfile.mkdtemp(prefix="campaign_")
 
-    st, base = run_detect(args.model, args.input, args.seed, work)
+    st, base = run_detect(args.model, args.input, args.seed, work,
+                          args.device)
     if st != "OK":
         sys.exit(f"clean baseline failed ({st}); cannot run campaign")
     print(f"baseline: flags={[k for k,v in base['flags'].items() if v]} "
@@ -288,7 +298,7 @@ def main():
         with open(faulty, "wb") as fh:
             fh.write(bytes(data))
 
-        trial = run_detect(faulty, args.input, args.seed, work)
+        trial = run_detect(faulty, args.input, args.seed, work, args.device)
         status, mech, extra = classify(base, trial)
 
         rows.append({
@@ -355,6 +365,7 @@ def main():
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"model": os.path.basename(args.model),
+                       "device": args.device,
                        "baseline": base["flags"], "rows": rows}, fh, indent=2)
         print(f"wrote {args.json}")
     if args.csv:

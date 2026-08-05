@@ -48,6 +48,10 @@ def load_all(paths):
         with open(p) as fh:
             d = json.load(fh)
         d["_file"] = os.path.basename(p)
+        # Compiled and source models share a name prefix, so the device must
+        # appear in the label or the two arms are indistinguishable in tables.
+        dev = d.get("device", "cpu")
+        d['model'] = f"{d['model'][:20]}… [{dev}]"
         out.append(d)
     return out
 
@@ -68,7 +72,7 @@ def table_outcomes(campaigns):
         for f in sorted({r["fault"] for r in rows}):
             sub = [r for r in rows if r["fault"] == f]
             counts = [sum(r["status"] == s for r in sub) for s in STATUSES]
-            lines.append(f"| {c['model'][:28]} | {f} | {len(sub)} | " +
+            lines.append(f"| {c['model'][:34]} | {f} | {len(sub)} | " +
                          " | ".join(str(x) for x in counts) + " |")
     return "\n".join(lines)
 
@@ -82,17 +86,17 @@ def table_detection(campaigns):
     for c in campaigns:
         opp = opportunities(c["rows"])
         if not opp:
-            lines.append(f"| {c['model'][:28]} | 0 | — | — | — |")
+            lines.append(f"| {c['model'][:34]} | 0 | — | — | — |")
             continue
         cells = []
         for key in ("det_flags", "det_scan", "det_output_only"):
             k = sum(r[key] for r in opp)
             p, lo, hi = wilson(k, len(opp))
             cells.append(f"{p*100:.1f}% [{lo*100:.0f}–{hi*100:.0f}]")
-            series.append({"model": c["model"], "mechanism": key,
+            series.append({"model": c['model'], "mechanism": key,
                            "k": k, "n": len(opp), "rate": p,
                            "ci_lo": lo, "ci_hi": hi})
-        lines.append(f"| {c['model'][:28]} | {len(opp)} | " +
+        lines.append(f"| {c['model'][:34]} | {len(opp)} | " +
                      " | ".join(cells) + " |")
     return "\n".join(lines), series
 
@@ -135,7 +139,7 @@ def table_reachability(campaigns):
         opp = len(opportunities(rows))
         silent = sum(r["status"] == "ACTIVATED_OUTPUT" for r in rows)
         lines.append(f"| {c['model'][:34]} | {len(rows)} | {opp} | {silent} |")
-        series.append({"model": c["model"], "trials": len(rows),
+        series.append({"model": c['model'], "trials": len(rows),
                        "opportunities": opp, "silent": silent})
     return "\n".join(lines), series
 

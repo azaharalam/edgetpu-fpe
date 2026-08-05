@@ -58,9 +58,27 @@ except ImportError:
     sys.exit("needs the schema bindings:  pip install tflite flatbuffers")
 
 try:
-    from tflite_runtime.interpreter import Interpreter
+    from tflite_runtime.interpreter import Interpreter, load_delegate
 except ImportError:
-    from tensorflow.lite.python.interpreter import Interpreter
+    from tensorflow.lite.python.interpreter import Interpreter, load_delegate
+
+EDGETPU_LIB = {"Linux": "libedgetpu.so.1",
+               "Darwin": "libedgetpu.1.dylib",
+               "Windows": "edgetpu.dll"}[__import__("platform").system()]
+
+
+def make_interpreter(model_path, device="cpu"):
+    """
+    A compiled model contains edgetpu-custom-op, which only the delegate can
+    resolve; building a plain Interpreter over it fails at prepare time. The
+    device must therefore follow the model through every inference path,
+    including the isolated child processes.
+    """
+    delegates = [load_delegate(EDGETPU_LIB)] if device == "tpu" else []
+    interp = Interpreter(model_path=model_path,
+                         experimental_delegates=delegates)
+    interp.allocate_tensors()
+    return interp
 
 
 # flatbuffers vtable slots
@@ -283,9 +301,8 @@ def patch(data, entry, fault, magnitude, rng, element=None):
     return rec
 
 
-def infer(model_path, input_path, seed=0):
-    interp = Interpreter(model_path=model_path)
-    interp.allocate_tensors()
+def infer(model_path, input_path, seed=0, device="cpu"):
+    interp = make_interpreter(model_path, device)
     rng = np.random.default_rng(seed)
     for d in interp.get_input_details():
         dt = np.dtype(d["dtype"])
@@ -302,7 +319,7 @@ def infer(model_path, input_path, seed=0):
             for d in interp.get_output_details()]
 
 
-def infer_isolated(model_path, input_path, seed, outdir):
+def infer_isolated(model_path, input_path, seed, outdir, device="cpu"):
     """
     Run inference in a child process. Malformed quantization metadata can
     make TFLite's native code abort (SIGABRT), which no Python try/except can
@@ -312,7 +329,8 @@ def infer_isolated(model_path, input_path, seed, outdir):
     import subprocess, tempfile, glob as _glob
     tmp = tempfile.mkdtemp(dir=outdir)
     cmd = [sys.executable, os.path.abspath(__file__), "_infer",
-           "--model", model_path, "--seed", str(seed), "--outdir", tmp]
+           "--model", model_path, "--seed", str(seed), "--outdir", tmp,
+           "--device", device]
     if input_path:
         cmd += ["--input", input_path]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -370,7 +388,7 @@ def predict_exception(model_path, tensor_index, fault, magnitude):
     return None
 
 
-def outcome(model_clean, model_faulty, input_path, seed):
+def outcome(model_clean, model_faulty, input_path, seed, device="cpu"):
     """
     Four-way result. TFLite kernels validate quantization parameters to
     differing degrees (LOGISTIC hard-checks its output scale at 1/256;
@@ -380,10 +398,10 @@ def outcome(model_clean, model_faulty, input_path, seed):
     from genuine misses.
     """
     outdir = os.path.dirname(os.path.abspath(model_faulty)) or "."
-    st_c, res_c = infer_isolated(model_clean, input_path, seed, outdir)
+    st_c, res_c = infer_isolated(model_clean, input_path, seed, outdir, device)
     if st_c != "OK":
         return "BASELINE_FAILED", str(res_c)[:150]
-    st_f, res_f = infer_isolated(model_faulty, input_path, seed, outdir)
+    st_f, res_f = infer_isolated(model_faulty, input_path, seed, outdir, device)
     if st_f != "OK":
         return st_f, str(res_f)[:150]
 
@@ -431,8 +449,7 @@ def activated(clean, faulty):
 def cmd_infer_worker(args):
     """Child-process entry point for isolated inference, with flag polling."""
     import json as _json
-    interp = Interpreter(model_path=args.model)
-    interp.allocate_tensors()
+    interp = make_interpreter(args.model, getattr(args, "device", "cpu"))
     rng = np.random.default_rng(args.seed)
     for d in interp.get_input_details():
         dt = np.dtype(d["dtype"])
@@ -511,7 +528,8 @@ def cmd_inject(args):
                                  args.magnitude)
         if pred is not None:
             print(f"  ORACLE:  predicted exception = {pred}")
-        status, detail = outcome(args.model, args.out, args.input, args.seed)
+        status, detail = outcome(args.model, args.out, args.input, args.seed,
+                                 args.device)
         note = {"ACTIVATED_BOTH": "exception raised and output changed",
                 "ACTIVATED_EXCEPTION": "exception raised but fully masked "
                                        "downstream -- output inspection "
@@ -553,6 +571,8 @@ def main():
     p.add_argument("--verify", action="store_true",
                    help="check the fault actually reaches the output")
     p.add_argument("--input", help=".npy input for verification")
+    p.add_argument("--device", choices=["cpu", "tpu"], default="cpu",
+                   help="use tpu for compiled *_edgetpu.tflite models")
     p.set_defaults(func=cmd_inject)
 
     p = sub.add_parser("_infer", help=argparse.SUPPRESS)
@@ -560,6 +580,7 @@ def main():
     p.add_argument("--input")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--outdir", required=True)
+    p.add_argument("--device", choices=["cpu", "tpu"], default="cpu")
     p.set_defaults(func=cmd_infer_worker)
 
     args = ap.parse_args()

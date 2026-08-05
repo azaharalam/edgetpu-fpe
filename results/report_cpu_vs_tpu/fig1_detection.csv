@@ -1,0 +1,7 @@
+model,mechanism,k,n,rate,ci_lo,ci_hi
+ssd_mobilenet_v2_coco_quan [cpu],det_flags,87,87,1.0,0.957711004649852,1.0
+ssd_mobilenet_v2_coco_quan [cpu],det_scan,86,87,0.9885057471264368,0.937726515139851,0.9979681445755221
+ssd_mobilenet_v2_coco_quan [cpu],det_output_only,27,87,0.3103448275862069,0.22289014167438978,0.4138401669067009
+ssd_mobilenet_v2_coco_quan [tpu],det_flags,99,99,1.0,0.9626454664260378,1.0
+ssd_mobilenet_v2_coco_quan [tpu],det_scan,96,99,0.9696969696969697,0.9146617688347427,0.9896415481109291
+ssd_mobilenet_v2_coco_quan [tpu],det_output_only,24,99,0.24242424242424243,0.16866173936129492,0.3354299900555947

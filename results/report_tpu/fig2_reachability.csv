@@ -1,0 +1,3 @@
+model,trials,opportunities,silent
+ssd_mobilenet_v2_coc… [tpu],210,99,75
+efficientdet_lite0_3… [tpu],210,92,44
