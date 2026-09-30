@@ -1,3 +1,32 @@
+#!/usr/bin/env python3
+"""
+make_poster_figures.py -- one figure per panel, sized for the poster.
+
+    python make_figures.py --outdir figs
+    python make_figures.py --outdir figs --only overhead
+
+Figures produced
+    fig_overhead_detection   (a) scan cost vs elements observed
+                             (b) detection rate by mechanism
+    fig_reachability         (a) exception reachability per model
+                             (b) fault outcome composition
+    fig_delegation           (a) activation retention under delegation
+                             (b) metadata validation on the CPU path
+
+All three are generated at 7.16 in wide, which is \\textwidth in the
+IEEEtran two-column layout. Include them with
+
+    \\includegraphics[width=\\textwidth]{...}
+
+inside a figure* environment so LaTeX scales by 1.0. Passing any other
+width rescales the artwork and shrinks every label with it, which is the
+usual cause of unreadable axis text.
+
+Every number below is transcribed from the committed campaign reports and
+the overhead measurement. Re-running a campaign means editing the tables
+here, not the plotting code.
+"""
+
 import argparse
 import math
 import os
@@ -9,7 +38,12 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-
+# ==========================================================================
+# palette
+# ==========================================================================
+# Three primaries, taken from the detection-rate figure and reused
+# everywhere. Extra shades are only introduced where a panel needs more
+# than three series.
 C1 = "#1d3f6e"   # dark navy
 C2 = "#4a89c8"   # mid blue
 C3 = "#c4bfae"   # warm grey
@@ -19,7 +53,11 @@ C_EXTRA_C = "#c2703f"   # rust, for the silent-corruption segment
 C_TRACK = "#f0eee8"     # inert background track
 C_RED = "#a32d2d"       # fitted curve
 
+# ==========================================================================
+# measured data
+# ==========================================================================
 
+# --- overhead: model, arm, tensors, elements, invoke ms, scan ms ----------
 OVERHEAD = [
     ("MobileNetV2",  "cpu",  66,  6_898_779,  35.47,  13.59),
     ("MobileNetV2",  "tpu",   1,      1_001,   5.02,   0.36),
@@ -34,17 +72,20 @@ OVERHEAD = [
 MARKERS = {"MobileNetV2": "o", "DeepLabV3": "^",
            "SSD MBv2": "s", "EfficientDet": "D"}
 
+# label offsets in points; the four mid-range points sit within half a
+# decade of one another and collide under automatic placement
 LABEL_OFF = {
-    ("MobileNetV2",  "cpu"): (  2, -16),
-    ("MobileNetV2",  "tpu"): (  8,  -3),
-    ("DeepLabV3",    "cpu"): (  7,   3),
-    ("DeepLabV3",    "tpu"): (-24,   8),
-    ("SSD MBv2",     "cpu"): (  8,  -4),
-    ("SSD MBv2",     "tpu"): (  8,  -3),
-    ("EfficientDet", "cpu"): (-34,   7),
-    ("EfficientDet", "tpu"): (-27, -13),
+    ("MobileNetV2",  "cpu"): ( 14, -34),
+    ("MobileNetV2",  "tpu"): ( 18,  -8),
+    ("DeepLabV3",    "cpu"): ( 16, -12),
+    ("DeepLabV3",    "tpu"): (-82, -13),
+    ("SSD MBv2",     "cpu"): ( 18, -10),
+    ("SSD MBv2",     "tpu"): ( 18,  -8),
+    ("EfficientDet", "cpu"): (-74,  20),
+    ("EfficientDet", "tpu"): (-78,   4),
 }
 
+# --- detection: label, n, detections by (flags, scan, output only) --------
 DETECTION = [
     ("SSD\nCPU",    87, (87, 86, 27)),
     ("SSD\nTPU",    99, (99, 96, 24)),
@@ -53,6 +94,7 @@ DETECTION = [
 ]
 MECHANISMS = ["Flag polling", "Tensor scan", "Output only"]
 
+# --- reachability: model, trials, exception opportunities -----------------
 REACH = [
     ("SSD MBv2",    240, 59),
     ("EffDet",      240, 60),
@@ -61,16 +103,22 @@ REACH = [
     ("DeepLabV3",   150,  0),
 ]
 
+# --- outcomes: model, rejected, crashed, inert, silent, exception --------
 OUTCOMES = [
-    ("SSD MBv2",    88,  2,  39, 52, 59),
-    ("EffDet",       2,  8, 114, 56, 60),
+    ("SSD MBv2",    73,  2,  44, 62, 59),
+    ("EffDet",       2,  8,  84, 86, 60),
     ("MobileNetV2", 79,  3,  39, 28,  1),
-    ("MoveNet",      8, 11,  63, 68,  0),
-    ("DeepLabV3",   75,  2,  15, 58,  0),
+    ("MoveNet",      8,  9,  63, 70,  0),
+    ("DeepLabV3",   80,  1,  11, 58,  0),
 ]
 OUT_LABELS = ["Rejected", "Crashed", "Inert", "Silent", "Exception"]
 OUT_COLS = [C3, C_EXTRA_A, "#dfd9c8", C_EXTRA_C, C1]
 
+# --- retention: model, (float cpu, tpu), (quantized cpu, tpu) ------------
+# Delegation fuses the mapped partition, which is quantized throughout.
+# Float activations sit at the partition boundary and on the host, so none
+# of them is absorbed -- which is why the two floating-point mechanisms are
+# unchanged on the accelerator while saturation coverage is not.
 VISIBILITY = [
     ("SSD",       ( 6,  6), (108,  2)),
     ("EffDet",    ( 6,  6), (264, 10)),
@@ -79,6 +127,8 @@ VISIBILITY = [
     ("MobileNet", ( 0,  0), ( 66,  1)),
 ]
 
+# --- validation: fault class -> injections rejected out of 30 ------------
+# The rate on the compiled model is zero for every class and both models.
 REJECT_CPU = [
     ("overflow",  16, 30),
     ("underflow", 19, 30),
@@ -88,18 +138,44 @@ REJECT_CPU = [
 
 TRIALS_PER_CLASS = 30
 
+# Below ~1e6 elements the per-tensor call overhead dominates and the scan
+# is not throughput-bound; a quadratic fit in log-log space captures both
+# regimes (log residual 0.093) where a straight line does not (0.166).
 FIT_DEG = 2
+
+
+# ==========================================================================
+# helpers
+# ==========================================================================
+
+# Each panel becomes its own figure, sized for one poster slot. Generate at
+# the size you will place: PowerPoint scaling a small figure up softens
+# every label, and scaling a large one down makes them illegible.
+W, H = 9.0, 6.0        # inches; override with --width / --height
+DPI = 600
+FONT = 28.0            # pt; poster body text is Calibri 27.8 pt, every label matches it
+SCALE = 2.5            # (unused) fonts relative to the paper version
+
+
+def _set_geometry(w, h, dpi):
+    global W, H, DPI
+    W, H, DPI = w, h, dpi
 
 
 def style():
     plt.rcParams.update({
         "font.family": "sans-serif",
-        "font.sans-serif": ["DejaVu Sans"],
-        "font.size": 9.5,
-        "axes.labelsize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "pdf.fonttype": 42,     # embed TrueType rather than Type 3
+        "font.sans-serif": ["Calibri", "Carlito", "DejaVu Sans"],
+        "font.size": FONT,
+        "axes.labelsize": FONT,
+        "axes.titlesize": FONT,
+        "axes.titleweight": "bold",
+        "xtick.labelsize": FONT,
+        "ytick.labelsize": FONT,
+        "legend.fontsize": FONT,
+        "lines.linewidth": 1.6,
+        "patch.linewidth": 1.0,
+        "pdf.fonttype": 42,
         "ps.fonttype": 42,
     })
 
@@ -110,7 +186,8 @@ def despine(ax):
 
 
 def wilson(k, n, z=1.96):
-
+    """Wilson score interval. Correct at small n and near 0 or 1, where the
+    normal approximation produces bounds outside the unit interval."""
     if n == 0:
         return 0.0, 0.0, 0.0
     p = k / n
@@ -122,51 +199,53 @@ def wilson(k, n, z=1.96):
 
 def save(fig, outdir, name):
     os.makedirs(outdir, exist_ok=True)
-    for ext, kw in (("pdf", {}), ("png", {"dpi": 1200})):
+    for ext, kw in (("pdf", {}), ("png", {"dpi": DPI})):
         path = os.path.join(outdir, f"{name}.{ext}")
         fig.savefig(path, **kw)
     print(f"wrote {outdir}/{name}.pdf and .png")
     plt.close(fig)
 
 
-
+# ==========================================================================
+# figure 1: overhead and detection
+# ==========================================================================
 
 def panel_overhead(ax):
     """Model is encoded by marker, execution path by colour. Only the
     overhead percentage is annotated; the mid-range points are too close
     together to carry model names as well."""
     for name, arm, _, el, inv, scn in OVERHEAD:
-        ax.scatter([el], [scn], s=34, marker=MARKERS[name],
-                   facecolors="none", linewidths=1.4, zorder=3,
+        ax.scatter([el], [scn], s=110, marker=MARKERS[name],
+                   facecolors="none", linewidths=2.2, zorder=3,
                    edgecolors=(C_EXTRA_A if arm == "cpu" else C_EXTRA_B))
         ax.annotate(f"{100 * scn / inv:.0f}%", (el, scn),
                     textcoords="offset points", xytext=LABEL_OFF[(name, arm)],
-                    fontsize=8.5, color="#333")
+                    fontsize=FONT, color="#333")
 
     x = np.array([r[3] for r in OVERHEAD], float)
     y = np.array([r[5] for r in OVERHEAD], float)
     coef = np.polyfit(np.log10(x), np.log10(y), FIT_DEG)
     grid = np.logspace(np.log10(x.min() * 0.55), np.log10(x.max() * 2.2), 300)
     ax.plot(grid, 10 ** np.polyval(coef, np.log10(grid)),
-            "-", c=C_RED, lw=1.3, zorder=2)
+            "-", c=C_RED, lw=2.4, zorder=2)
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim(x.min() * 0.22, x.max() * 9.0)
-    ax.set_ylim(y.min() * 0.24, y.max() * 5.5)
+    ax.set_xlim(x.min() * 0.16, x.max() * 22.0)
+    ax.set_ylim(y.min() * 0.18, y.max() * 9.0)
     ax.set_xlabel("Elements scanned per inference", labelpad=2)
     ax.set_ylabel("Scan time (ms)", labelpad=2)
-    ax.set_title("(a) Instrumentation cost", fontsize=9.5, pad=5, loc="left")
+    ax.set_title("Instrumentation cost", fontsize=FONT, pad=5, loc="left")
     ax.grid(True, which="major", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
 
     handles = [Line2D([], [], ls="", marker=MARKERS[m], mfc="none",
-                      mec="#555", mew=1.3, ms=5, label=m) for m in MARKERS]
+                      mec="#555", mew=2.0, ms=9, label=m) for m in MARKERS]
     handles += [Line2D([], [], ls="", marker="o", mfc="none",
-                       mec=C_EXTRA_A, mew=1.3, ms=5, label="CPU path"),
+                       mec=C_EXTRA_A, mew=2.0, ms=9, label="CPU path"),
                 Line2D([], [], ls="", marker="o", mfc="none",
-                       mec=C_EXTRA_B, mew=1.3, ms=5, label="TPU path")]
-    ax.legend(handles=handles, frameon=False, fontsize=9, ncol=3,
-              loc="lower center", bbox_to_anchor=(0.5, -0.46),
+                       mec=C_EXTRA_B, mew=2.0, ms=9, label="TPU path")]
+    ax.legend(handles=handles, frameon=False, fontsize=FONT, ncol=3,
+              loc="lower center", bbox_to_anchor=(0.5, -0.62),
               handlelength=1.0, handletextpad=0.3, columnspacing=0.8,
               labelspacing=0.35)
     despine(ax)
@@ -182,34 +261,41 @@ def panel_detection(ax):
                label=mech, edgecolor="white", linewidth=0.5)
         # adjacent bars sit close; stagger the labels so the three-digit
         # ones do not collide
-        dy = (3.0, 9.5, 3.0)[j]
+        dy = (3.0, 17.0, 3.0)[j]
         for xp, r in zip(pos, rates):
-            ax.text(xp, r + dy, f"{r:.0f}", ha="center", fontsize=9,
+            ax.text(xp, r + dy, f"{r:.0f}", ha="center", fontsize=FONT,
                     color="#333")
 
     ax.set_xticks(idx)
-    ax.set_xticklabels([lab for lab, _, _ in DETECTION], fontsize=9.5)
+    ax.set_xticklabels([lab for lab, _, _ in DETECTION], fontsize=FONT)
     ax.tick_params(axis="x", length=0, pad=2)
-    ax.set_ylim(0, 126)
+    ax.set_ylim(0, 138)
     ax.set_yticks([0, 50, 100])
     ax.set_ylabel("Detected (%)", labelpad=2)
-    ax.set_title("(b) Detection rate by mechanism", fontsize=9.5, pad=5,
+    ax.set_title("Detection rate by mechanism", fontsize=FONT, pad=5,
                  loc="left")
     ax.grid(True, axis="y", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-    ax.legend(frameon=False, fontsize=9, ncol=3, loc="lower center",
+    ax.legend(frameon=False, fontsize=FONT, ncol=3, loc="lower center",
               bbox_to_anchor=(0.5, -0.46), handlelength=1.0,
               handletextpad=0.35, columnspacing=0.7)
     despine(ax)
 
 
-def fig_overhead_detection(outdir):
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.16, 3.25))
-    panel_overhead(a)
-    panel_detection(b)
-    fig.subplots_adjust(left=0.095, right=0.995, top=0.925, bottom=0.31,
-                        wspace=0.26)
-    save(fig, outdir, "fig_overhead_detection")
+def _single(outdir, name, painter, w, h, adj):
+    fig, ax = plt.subplots(1, 1, figsize=(w, h))
+    painter(ax)
+    fig.subplots_adjust(**adj)
+    save(fig, outdir, name)
 
+
+def fig_overhead(outdir):
+    _single(outdir, "p1_overhead", panel_overhead, W, H,
+            dict(left=0.17, right=0.98, top=0.92, bottom=0.38))
+
+
+def fig_detection(outdir):
+    _single(outdir, "p2_detection", panel_detection, W, H,
+            dict(left=0.15, right=0.98, top=0.92, bottom=0.30))
     print("\nWilson 95% intervals, for the caption")
     for lab, n, ks in DETECTION:
         cells = []
@@ -221,7 +307,9 @@ def fig_overhead_detection(outdir):
     print()
 
 
-
+# ==========================================================================
+# figure 2: reachability and outcomes
+# ==========================================================================
 
 def panel_reach(ax):
     """Normalised: the detection models ran 240 trials and the controls
@@ -231,14 +319,14 @@ def panel_reach(ax):
     y = np.arange(len(labels))[::-1]
     ax.barh(y, pct, 0.62, color=[C1 if p > 0 else C3 for p in pct], zorder=3)
     for yi, p in zip(y, pct):
-        ax.text(p + 0.7, yi, f"{p:.1f}%", va="center", fontsize=9,
+        ax.text(p + 0.7, yi, f"{p:.1f}%", va="center", fontsize=FONT,
                 color="#333")
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=9.5)
+    ax.set_yticklabels(labels, fontsize=FONT)
     ax.tick_params(axis="y", length=0)
     ax.set_xlim(0, 31)
     ax.set_xlabel("Trials raising an exception (%)", labelpad=2)
-    ax.set_title("(a) Exception reachability", fontsize=9.5, pad=5,
+    ax.set_title("Exception reachability", fontsize=FONT, pad=5,
                  loc="left")
     ax.grid(True, axis="x", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
     despine(ax)
@@ -256,32 +344,35 @@ def panel_outcomes(ax):
         for yi, f, l in zip(y, frac[:, j], left):
             if f >= 11:
                 ax.text(l + f / 2, yi, f"{f:.0f}", ha="center", va="center",
-                        fontsize=8.5,
+                        fontsize=FONT,
                         color="white" if j in (1, 3, 4) else "#3a3a3a")
         left += frac[:, j]
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=9.5)
+    ax.set_yticklabels(labels, fontsize=FONT)
     ax.tick_params(axis="y", length=0)
     ax.set_xlim(0, 100)
     ax.set_xlabel("Share of injected faults (%)", labelpad=2)
-    ax.set_title("(b) Fault outcome composition", fontsize=9.5, pad=5,
+    ax.set_title("Fault outcome composition", fontsize=FONT, pad=5,
                  loc="left")
-    ax.legend(frameon=False, fontsize=8.5, ncol=5, loc="lower center",
-              bbox_to_anchor=(0.36, -0.40), handlelength=0.9,
+    ax.legend(frameon=False, fontsize=FONT, ncol=3, loc="lower center",
+              bbox_to_anchor=(0.5, -0.78), handlelength=0.9,
               handletextpad=0.3, columnspacing=0.6)
     despine(ax)
 
 
-def fig_reachability(outdir):
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.16, 2.9))
-    panel_reach(a)
-    panel_outcomes(b)
-    fig.subplots_adjust(left=0.145, right=0.985, top=0.92, bottom=0.30,
-                        wspace=0.46)
-    save(fig, outdir, "fig_reachability")
+def fig_reach(outdir):
+    _single(outdir, "p3_reachability", panel_reach, W, H,
+            dict(left=0.30, right=0.97, top=0.92, bottom=0.22))
 
 
+def fig_outcomes(outdir):
+    _single(outdir, "p4_outcomes", panel_outcomes, W, H,
+            dict(left=0.26, right=0.95, top=0.92, bottom=0.42))
 
+
+# ==========================================================================
+# figure 3: delegation
+# ==========================================================================
 
 def panel_visibility(ax):
     """Retention of each activation class under delegation. Float
@@ -296,28 +387,28 @@ def panel_visibility(ax):
     for yi, (_, (fc, ft), (qc, qt)) in zip(y, VISIBILITY):
         qpct = 100 * qt / qc
         ax.barh(yi - h / 2, qpct, h, color=C2, zorder=3)
-        ax.text(qpct + 2.5, yi - h / 2, f"{qt} of {qc}", va="center",
-                fontsize=8.5, color="#333")
+        ax.text(max(qpct, 28 if not fc else 0) + 2.5, yi - h / 2,
+                f"{qt} of {qc}", va="center", fontsize=FONT, color="#333")
         if fc:
             ax.barh(yi + h / 2, 100 * ft / fc, h, color=C1, zorder=3)
             ax.text(102.5, yi + h / 2, f"{ft} of {fc}", va="center",
-                    fontsize=8.5, color="#333")
+                    fontsize=FONT, color="#333")
         else:
-            ax.text(2.0, yi + h / 2, "no float activations", va="center",
-                    fontsize=8.5, color="#999")
+            ax.text(2.5, yi + h / 2, "no float32", va="center",
+                    fontsize=FONT, color="#999")
 
     ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=9.5)
+    ax.set_yticklabels(labels, fontsize=FONT)
     ax.tick_params(axis="y", length=0)
     ax.set_xlim(0, 132)
     ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Activations retained (%)", labelpad=2)
-    ax.set_title("(a) Observability under delegation", fontsize=9.5, pad=5,
+    ax.set_title("Observability under delegation", fontsize=FONT, pad=5,
                  loc="left")
     ax.grid(True, axis="x", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
     ax.legend(handles=[Patch(facecolor=C1, label="float32"),
                        Patch(facecolor=C2, label="quantized")],
-              frameon=False, fontsize=9, ncol=2, loc="lower center",
+              frameon=False, fontsize=FONT, ncol=2, loc="lower center",
               bbox_to_anchor=(0.42, -0.40), handlelength=1.1,
               handletextpad=0.4, columnspacing=1.0)
     despine(ax)
@@ -336,49 +427,58 @@ def panel_validation(ax):
         pos = idx + (k - 0.5) * w
         ax.bar(pos, vals, w * 0.88, color=colour, zorder=3, label=model)
         for xp, v in zip(pos, vals):
-            ax.text(xp, v + 2.5, f"{v:.0f}", ha="center", fontsize=8.5,
+            ax.text(xp, v + 2.5, f"{v:.0f}", ha="center", fontsize=FONT,
                     color="#333")
 
     ax.set_xticks(idx)
-    ax.set_xticklabels(classes, fontsize=8.2)
+    ax.set_xticklabels(classes, fontsize=FONT)
     ax.tick_params(axis="x", length=0, pad=2)
     ax.set_ylim(0, 118)
     ax.set_yticks([0, 50, 100])
     ax.set_ylabel("Injections rejected (%)", labelpad=2)
-    ax.set_title("(b) Metadata validation, CPU path", fontsize=9.5, pad=5,
+    ax.set_title("Metadata validation, CPU path", fontsize=FONT, pad=5,
                  loc="left")
     ax.grid(True, axis="y", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-    ax.legend(frameon=False, fontsize=9, ncol=2, loc="lower center",
+    ax.legend(frameon=False, fontsize=FONT, ncol=2, loc="lower center",
               bbox_to_anchor=(0.5, -0.40), handlelength=1.1,
               handletextpad=0.4, columnspacing=1.2)
     despine(ax)
 
 
-def fig_delegation(outdir):
-    fig, (a, b) = plt.subplots(1, 2, figsize=(7.16, 3.1))
-    panel_visibility(a)
-    panel_validation(b)
-    fig.subplots_adjust(left=0.115, right=0.99, top=0.92, bottom=0.29,
-                        wspace=0.55)
-    save(fig, outdir, "fig_delegation")
+def fig_visibility(outdir):
+    _single(outdir, "p5_visibility", panel_visibility, W, H,
+            dict(left=0.25, right=0.97, top=0.92, bottom=0.30))
+
+
+def fig_validation(outdir):
+    _single(outdir, "p6_validation", panel_validation, W, H,
+            dict(left=0.17, right=0.98, top=0.92, bottom=0.28))
 
 
 # ==========================================================================
 
 FIGURES = {
-    "overhead": fig_overhead_detection,
-    "reachability": fig_reachability,
-    "delegation": fig_delegation,
+    "overhead":    fig_overhead,
+    "detection":   fig_detection,
+    "reachability": fig_reach,
+    "outcomes":    fig_outcomes,
+    "visibility":  fig_visibility,
+    "validation":  fig_validation,
 }
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--outdir", default="figs")
+    ap.add_argument("--outdir", default="figs_poster")
+    ap.add_argument("--width", type=float, default=W,
+                    help="panel width in inches, as placed on the poster")
+    ap.add_argument("--height", type=float, default=H)
+    ap.add_argument("--dpi", type=int, default=DPI)
     ap.add_argument("--only", choices=sorted(FIGURES),
                     help="generate a single figure instead of all three")
     args = ap.parse_args()
 
+    _set_geometry(args.width, args.height, args.dpi)
     style()
     names = [args.only] if args.only else list(FIGURES)
     for n in names:
