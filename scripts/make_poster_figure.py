@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-make_poster_figures.py -- one figure per panel, sized for the poster.
+make_poster_figure.py -- one figure per poster panel, p1..p6.
 
-    python make_figures.py --outdir figs
-    python make_figures.py --outdir figs --only overhead
+    python scripts/make_poster_figure.py --outdir figs
+    python scripts/make_poster_figure.py --outdir figs --only overhead
 
 Figures produced
     fig_overhead_detection   (a) scan cost vs elements observed
@@ -151,9 +151,9 @@ FIT_DEG = 2
 # Each panel becomes its own figure, sized for one poster slot. Generate at
 # the size you will place: PowerPoint scaling a small figure up softens
 # every label, and scaling a large one down makes them illegible.
-W, H = 9.0, 6.0        # inches; override with --width / --height
+W, H = 6.3, 5.0        # inches, the poster's three-per-row slot; --width / --height
 DPI = 600
-FONT = 28.0            # pt; poster body text is Calibri 27.8 pt, every label matches it
+FONT = 24.0            # pt; poster caption size (body is 28); --font
 SCALE = 2.5            # (unused) fonts relative to the paper version
 
 
@@ -177,6 +177,7 @@ def style():
         "patch.linewidth": 1.0,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
+        "svg.fonttype": "path",   # text as outlines: identical on any machine
     })
 
 
@@ -199,263 +200,222 @@ def wilson(k, n, z=1.96):
 
 def save(fig, outdir, name):
     os.makedirs(outdir, exist_ok=True)
-    for ext, kw in (("pdf", {}), ("png", {"dpi": DPI})):
+    for ext, kw in (("pdf", {}), ("png", {"dpi": DPI}), ("svg", {})):
         path = os.path.join(outdir, f"{name}.{ext}")
         fig.savefig(path, **kw)
-    print(f"wrote {outdir}/{name}.pdf and .png")
+    print(f"wrote {outdir}/{name}.pdf, .png and .svg")
     plt.close(fig)
 
 
 # ==========================================================================
-# figure 1: overhead and detection
+# panels -- the same drawings as the paper figures, one per file
 # ==========================================================================
 
-def panel_overhead(ax):
-    """Model is encoded by marker, execution path by colour. Only the
-    overhead percentage is annotated; the mid-range points are too close
-    together to carry model names as well."""
-    for name, arm, _, el, inv, scn in OVERHEAD:
-        ax.scatter([el], [scn], s=110, marker=MARKERS[name],
-                   facecolors="none", linewidths=2.2, zorder=3,
-                   edgecolors=(C_EXTRA_A if arm == "cpu" else C_EXTRA_B))
-        ax.annotate(f"{100 * scn / inv:.0f}%", (el, scn),
-                    textcoords="offset points", xytext=LABEL_OFF[(name, arm)],
-                    fontsize=FONT, color="#333")
+SHORT = {"SSD MBv2": "SSD MBv2", "SSD": "SSD MBv2", "EffDet": "EfficientDet",
+         "MobileNetV2": "MobileNetV2", "MobileNet": "MobileNetV2",
+         "MoveNet": "MoveNet", "DeepLabV3": "DeepLabV3", "DeepLab": "DeepLabV3"}
+LAB = "#333"
 
+
+def num():
+    """In-plot value labels sit one step below the label size."""
+    return FONT - 4
+
+
+def legend_below(fig, handles, ncol, y):
+    fig.legend(handles=handles, frameon=False, ncol=ncol, loc="upper center",
+               bbox_to_anchor=(0.5, y), handlelength=1.0, handletextpad=0.4,
+               columnspacing=0.9, labelspacing=0.25)
+
+
+def panel_overhead(ax):
+    """Scan cost; execution path by colour, one marker."""
+    off = {("MobileNetV2", "cpu"): (6, -20), ("MobileNetV2", "tpu"): (13, -6),
+           ("DeepLabV3", "cpu"): (13, -4), ("DeepLabV3", "tpu"): (-60, -2),
+           ("SSD MBv2", "cpu"): (8, -14), ("SSD MBv2", "tpu"): (-54, 2),
+           ("EfficientDet", "cpu"): (-52, 12), ("EfficientDet", "tpu"): (-54, 6)}
+    for name, arm, _, el, inv, scn in OVERHEAD:
+        col = C_EXTRA_A if arm == "cpu" else C_EXTRA_B
+        ax.scatter([el], [scn], s=90, marker=MARKERS[name], facecolors="none",
+                   edgecolors=col, linewidths=2.0, zorder=3)
+        ax.annotate(f"{100 * scn / inv:.0f}%", (el, scn), fontsize=num(),
+                    color=LAB, textcoords="offset points", xytext=off[(name, arm)])
     x = np.array([r[3] for r in OVERHEAD], float)
     y = np.array([r[5] for r in OVERHEAD], float)
     coef = np.polyfit(np.log10(x), np.log10(y), FIT_DEG)
     grid = np.logspace(np.log10(x.min() * 0.55), np.log10(x.max() * 2.2), 300)
-    ax.plot(grid, 10 ** np.polyval(coef, np.log10(grid)),
-            "-", c=C_RED, lw=2.4, zorder=2)
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlim(x.min() * 0.16, x.max() * 22.0)
+    ax.plot(grid, 10 ** np.polyval(coef, np.log10(grid)), c=C_RED, lw=2.2, zorder=2)
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlim(x.min() * 0.16, x.max() * 30)
     ax.set_ylim(y.min() * 0.18, y.max() * 9.0)
+    ax.set_xticks([1e4, 1e6, 1e8]); ax.set_yticks([1e-1, 1e1, 1e3])
     ax.set_xlabel("Elements scanned per inference", labelpad=2)
     ax.set_ylabel("Scan time (ms)", labelpad=2)
-    ax.set_title("Instrumentation cost", fontsize=FONT, pad=5, loc="left")
-    ax.grid(True, which="major", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-
-    handles = [Line2D([], [], ls="", marker=MARKERS[m], mfc="none",
-                      mec="#555", mew=2.0, ms=9, label=m) for m in MARKERS]
-    handles += [Line2D([], [], ls="", marker="o", mfc="none",
-                       mec=C_EXTRA_A, mew=2.0, ms=9, label="CPU path"),
-                Line2D([], [], ls="", marker="o", mfc="none",
-                       mec=C_EXTRA_B, mew=2.0, ms=9, label="TPU path")]
-    ax.legend(handles=handles, frameon=False, fontsize=FONT, ncol=3,
-              loc="lower center", bbox_to_anchor=(0.5, -0.62),
-              handlelength=1.0, handletextpad=0.3, columnspacing=0.8,
-              labelspacing=0.35)
+    ax.set_title("Instrumentation cost", loc="left", pad=6)
+    ax.grid(True, which="major", ls=":", lw=0.6, c="#d0d0d0", zorder=0)
     despine(ax)
+    hs = [Line2D([], [], ls="", marker=MARKERS[m], mfc="none", mec="#555",
+                 mew=2.0, ms=9, label=m) for m in MARKERS]
+    hs += [Line2D([], [], ls="", marker="o", mfc="none", mec=C_EXTRA_A, mew=2.0,
+                  ms=9, label="CPU path"),
+           Line2D([], [], ls="", marker="o", mfc="none", mec=C_EXTRA_B, mew=2.0,
+                  ms=9, label="TPU path")]
+    return hs
 
 
 def panel_detection(ax):
-    idx = np.arange(len(DETECTION))
-    width = 0.26
-    for j, (mech, colour) in enumerate(zip(MECHANISMS, (C1, C2, C3))):
+    """Vertical bars: at poster size a 20 pt label needs the horizontal room
+    above a bar; three stacked horizontal bars per group are too thin."""
+    idx = np.arange(len(DETECTION)); width = 0.27
+    for j, colour in enumerate((C1, C2, C3)):
         rates = [wilson(ks[j], n)[0] * 100 for _, n, ks in DETECTION]
         pos = idx + (j - 1) * width
-        ax.bar(pos, rates, width * 0.9, color=colour, zorder=3,
-               label=mech, edgecolor="white", linewidth=0.5)
-        # adjacent bars sit close; stagger the labels so the three-digit
-        # ones do not collide
-        dy = (3.0, 17.0, 3.0)[j]
+        ax.bar(pos, rates, width * 0.9, color=colour, zorder=3)
+        dy = (3.0, 19.0, 3.0)[j]     # middle label one row higher: no collision
         for xp, r in zip(pos, rates):
-            ax.text(xp, r + dy, f"{r:.0f}", ha="center", fontsize=FONT,
-                    color="#333")
-
+            ax.text(xp, r + dy, f"{r:.0f}", ha="center", fontsize=num(), color=LAB)
     ax.set_xticks(idx)
-    ax.set_xticklabels([lab for lab, _, _ in DETECTION], fontsize=FONT)
+    ax.set_xticklabels([lab for lab, _, _ in DETECTION])
     ax.tick_params(axis="x", length=0, pad=2)
-    ax.set_ylim(0, 138)
-    ax.set_yticks([0, 50, 100])
+    ax.set_ylim(0, 140); ax.set_yticks([0, 50, 100])
     ax.set_ylabel("Detected (%)", labelpad=2)
-    ax.set_title("Detection rate by mechanism", fontsize=FONT, pad=5,
-                 loc="left")
-    ax.grid(True, axis="y", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-    ax.legend(frameon=False, fontsize=FONT, ncol=3, loc="lower center",
-              bbox_to_anchor=(0.5, -0.46), handlelength=1.0,
-              handletextpad=0.35, columnspacing=0.7)
+    ax.set_title("Detection rate by mechanism", loc="left", pad=6)
+    ax.grid(True, axis="y", ls=":", lw=0.6, c="#d0d0d0", zorder=0)
     despine(ax)
+    return [Patch(facecolor=c, label=l)
+            for c, l in zip((C1, C2, C3), MECHANISMS)]
 
-
-def _single(outdir, name, painter, w, h, adj):
-    fig, ax = plt.subplots(1, 1, figsize=(w, h))
-    painter(ax)
-    fig.subplots_adjust(**adj)
-    save(fig, outdir, name)
-
-
-def fig_overhead(outdir):
-    _single(outdir, "p1_overhead", panel_overhead, W, H,
-            dict(left=0.17, right=0.98, top=0.92, bottom=0.38))
-
-
-def fig_detection(outdir):
-    _single(outdir, "p2_detection", panel_detection, W, H,
-            dict(left=0.15, right=0.98, top=0.92, bottom=0.30))
-    print("\nWilson 95% intervals, for the caption")
-    for lab, n, ks in DETECTION:
-        cells = []
-        for mech, k in zip(MECHANISMS, ks):
-            p, lo, hi = wilson(k, n)
-            cells.append(f"{mech} {p*100:.1f}% [{lo*100:.0f},{hi*100:.0f}]")
-        flat = lab.replace("\n", " ")
-        print(f"  {flat:<12} n={n:<4} " + " | ".join(cells))
-    print()
-
-
-# ==========================================================================
-# figure 2: reachability and outcomes
-# ==========================================================================
 
 def panel_reach(ax):
-    """Normalised: the detection models ran 240 trials and the controls
-    150, so raw counts would not be comparable."""
-    labels = [r[0] for r in REACH]
+    labels = [SHORT[r[0]] for r in REACH]
     pct = [100 * r[2] / r[1] for r in REACH]
     y = np.arange(len(labels))[::-1]
     ax.barh(y, pct, 0.62, color=[C1 if p > 0 else C3 for p in pct], zorder=3)
     for yi, p in zip(y, pct):
-        ax.text(p + 0.7, yi, f"{p:.1f}%", va="center", fontsize=FONT,
-                color="#333")
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=FONT)
+        ax.text(p + 0.8, yi, f"{p:.1f}%", va="center", fontsize=num(), color=LAB)
+    ax.set_yticks(y); ax.set_yticklabels(labels)
     ax.tick_params(axis="y", length=0)
-    ax.set_xlim(0, 31)
+    ax.set_xlim(0, 42); ax.set_xticks([0, 20, 40])
     ax.set_xlabel("Trials raising an exception (%)", labelpad=2)
-    ax.set_title("Exception reachability", fontsize=FONT, pad=5,
-                 loc="left")
-    ax.grid(True, axis="x", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
+    ax.set_title("Exception reachability", loc="left", pad=6)
+    ax.grid(True, axis="x", ls=":", lw=0.6, c="#d0d0d0", zorder=0)
     despine(ax)
+    return []
 
 
 def panel_outcomes(ax):
-    labels = [r[0] for r in OUTCOMES]
+    labels = [SHORT[r[0]] for r in OUTCOMES]
     data = np.array([r[1:] for r in OUTCOMES], float)
     frac = 100 * data / data.sum(axis=1, keepdims=True)
     y = np.arange(len(labels))[::-1]
     left = np.zeros(len(labels))
     for j, (lab, col) in enumerate(zip(OUT_LABELS, OUT_COLS)):
         ax.barh(y, frac[:, j], 0.62, left=left, color=col, zorder=3,
-                label=lab, edgecolor="white", linewidth=0.5)
+                edgecolor="white", linewidth=0.5)
         for yi, f, l in zip(y, frac[:, j], left):
-            if f >= 11:
+            if f >= 15:
                 ax.text(l + f / 2, yi, f"{f:.0f}", ha="center", va="center",
-                        fontsize=FONT,
-                        color="white" if j in (1, 3, 4) else "#3a3a3a")
+                        fontsize=num(), color="white" if j in (1, 3, 4) else "#3a3a3a")
         left += frac[:, j]
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=FONT)
+    ax.set_yticks(y); ax.set_yticklabels(labels)
     ax.tick_params(axis="y", length=0)
-    ax.set_xlim(0, 100)
+    ax.set_xlim(0, 100); ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Share of injected faults (%)", labelpad=2)
-    ax.set_title("Fault outcome composition", fontsize=FONT, pad=5,
-                 loc="left")
-    ax.legend(frameon=False, fontsize=FONT, ncol=3, loc="lower center",
-              bbox_to_anchor=(0.5, -0.78), handlelength=0.9,
-              handletextpad=0.3, columnspacing=0.6)
+    ax.set_title("Fault outcome composition", loc="left", pad=6)
     despine(ax)
+    hs = [Patch(facecolor=c, label=l) for l, c in zip(OUT_LABELS, OUT_COLS)]
+    return [hs[0], hs[3], hs[1], hs[4], hs[2]]   # column-filled -> reads row-wise
 
-
-def fig_reach(outdir):
-    _single(outdir, "p3_reachability", panel_reach, W, H,
-            dict(left=0.30, right=0.97, top=0.92, bottom=0.22))
-
-
-def fig_outcomes(outdir):
-    _single(outdir, "p4_outcomes", panel_outcomes, W, H,
-            dict(left=0.26, right=0.95, top=0.92, bottom=0.42))
-
-
-# ==========================================================================
-# figure 3: delegation
-# ==========================================================================
 
 def panel_visibility(ax):
-    """Retention of each activation class under delegation. Float
-    activations are unaffected in every model, which is why the two
-    floating-point mechanisms are unchanged on the accelerator; the
-    quantized interior is what the fused partition absorbs, and with it
-    the saturation surface."""
-    labels = [r[0] for r in VISIBILITY]
-    y = np.arange(len(labels))[::-1]
-    h = 0.34
-
+    labels = [SHORT[r[0]] for r in VISIBILITY]
+    y = np.arange(len(labels))[::-1]; h = 0.36
     for yi, (_, (fc, ft), (qc, qt)) in zip(y, VISIBILITY):
-        qpct = 100 * qt / qc
-        ax.barh(yi - h / 2, qpct, h, color=C2, zorder=3)
-        ax.text(max(qpct, 28 if not fc else 0) + 2.5, yi - h / 2,
-                f"{qt} of {qc}", va="center", fontsize=FONT, color="#333")
+        ax.barh(yi - h / 2, 100 * qt / qc, h, color=C2, zorder=3)
+        ax.text(100 * qt / qc + 3, yi - h / 2, f"{qt} of {qc}", va="center",
+                fontsize=num(), color=LAB)
         if fc:
             ax.barh(yi + h / 2, 100 * ft / fc, h, color=C1, zorder=3)
-            ax.text(102.5, yi + h / 2, f"{ft} of {fc}", va="center",
-                    fontsize=FONT, color="#333")
+            ax.text(103, yi + h / 2, f"{ft} of {fc}", va="center", fontsize=num(), color=LAB)
         else:
-            ax.text(2.5, yi + h / 2, "no float32", va="center",
-                    fontsize=FONT, color="#999")
-
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=FONT)
+            ax.text(103, yi + h / 2, "no float32", va="center", fontsize=num(), color="#999")
+    ax.set_yticks(y); ax.set_yticklabels(labels)
     ax.tick_params(axis="y", length=0)
-    ax.set_xlim(0, 132)
-    ax.set_xticks([0, 50, 100])
+    ax.set_xlim(0, 150); ax.set_xticks([0, 50, 100])
     ax.set_xlabel("Activations retained (%)", labelpad=2)
-    ax.set_title("Observability under delegation", fontsize=FONT, pad=5,
-                 loc="left")
-    ax.grid(True, axis="x", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-    ax.legend(handles=[Patch(facecolor=C1, label="float32"),
-                       Patch(facecolor=C2, label="quantized")],
-              frameon=False, fontsize=FONT, ncol=2, loc="lower center",
-              bbox_to_anchor=(0.42, -0.40), handlelength=1.1,
-              handletextpad=0.4, columnspacing=1.0)
+    ax.set_title("Observability under delegation", loc="left", pad=6)
+    ax.grid(True, axis="x", ls=":", lw=0.6, c="#d0d0d0", zorder=0)
     despine(ax)
+    return [Patch(facecolor=C1, label="float32"),
+            Patch(facecolor=C2, label="quantized")]
 
 
 def panel_validation(ax):
-    """Rejection rate on the CPU path, grouped by fault class. The rate on
-    the compiled model is zero in every case, so only the CPU-path bars are
-    drawn and the zero is stated in the caption."""
     classes = [r[0] for r in REJECT_CPU]
-    idx = np.arange(len(classes))
-    w = 0.34
-    for k, (model, colour, col_i) in enumerate((("SSD", C1, 1),
-                                                ("EffDet", C2, 2))):
+    yb = np.arange(len(classes))[::-1]; w = 0.36
+    for k, (model, colour, col_i) in enumerate((("SSD", C1, 1), ("EffDet", C2, 2))):
         vals = [100 * r[col_i] / TRIALS_PER_CLASS for r in REJECT_CPU]
-        pos = idx + (k - 0.5) * w
-        ax.bar(pos, vals, w * 0.88, color=colour, zorder=3, label=model)
-        for xp, v in zip(pos, vals):
-            ax.text(xp, v + 2.5, f"{v:.0f}", ha="center", fontsize=FONT,
-                    color="#333")
-
-    ax.set_xticks(idx)
-    ax.set_xticklabels(classes, fontsize=FONT)
-    ax.tick_params(axis="x", length=0, pad=2)
-    ax.set_ylim(0, 118)
-    ax.set_yticks([0, 50, 100])
-    ax.set_ylabel("Injections rejected (%)", labelpad=2)
-    ax.set_title("Metadata validation, CPU path", fontsize=FONT, pad=5,
-                 loc="left")
-    ax.grid(True, axis="y", ls=":", lw=0.5, c="#d0d0d0", zorder=0)
-    ax.legend(frameon=False, fontsize=FONT, ncol=2, loc="lower center",
-              bbox_to_anchor=(0.5, -0.40), handlelength=1.1,
-              handletextpad=0.4, columnspacing=1.2)
+        pos = yb + (0.5 - k) * w
+        ax.barh(pos, vals, w * 0.9, color=colour, zorder=3)
+        for yp, v in zip(pos, vals):
+            ax.text(v + 3, yp, f"{v:.0f}", va="center", fontsize=num(), color=LAB)
+    ax.set_yticks(yb); ax.set_yticklabels(classes)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlim(0, 135); ax.set_xticks([0, 50, 100])
+    ax.set_xlabel("Injections rejected (%)", labelpad=2)
+    ax.set_title("Metadata validation, CPU path", loc="left", pad=6)
+    ax.grid(True, axis="x", ls=":", lw=0.6, c="#d0d0d0", zorder=0)
     despine(ax)
+    return [Patch(facecolor=C1, label="SSD"), Patch(facecolor=C2, label="EffDet")]
+
+
+def _single(outdir, name, painter, adj, ncol, legend_y):
+    fig, ax = plt.subplots(1, 1, figsize=(W, H))
+    handles = painter(ax)
+    if handles:
+        legend_below(fig, handles, ncol, legend_y)
+    fig.subplots_adjust(**adj)
+    save(fig, outdir, name)
+
+
+# margins are for a 6.3 x 4.6 in panel at 24 pt, the poster's three-per-row slot
+def fig_overhead(outdir):
+    _single(outdir, "p1_overhead", panel_overhead,
+            dict(left=0.19, right=0.97, top=0.90, bottom=0.46), 2, 0.28)
+
+
+def fig_detection(outdir):
+    _single(outdir, "p2_detection", panel_detection,
+            dict(left=0.17, right=0.98, top=0.88, bottom=0.44), 2, 0.24)
+    print("\nWilson 95% intervals, for the caption")
+    for lab, n, ks in DETECTION:
+        cells = []
+        for mech, k in zip(MECHANISMS, ks):
+            p, lo, hi = wilson(k, n)
+            cells.append(f"{mech} {p*100:.1f}% [{lo*100:.0f},{hi*100:.0f}]")
+        print(f"  {lab.replace(chr(10), ' '):<12} n={n:<4} " + " | ".join(cells))
+    print()
+
+
+def fig_reach(outdir):
+    _single(outdir, "p3_reachability", panel_reach,
+            dict(left=0.31, right=0.96, top=0.88, bottom=0.24), 1, 0.0)
+
+
+def fig_outcomes(outdir):
+    _single(outdir, "p4_outcomes", panel_outcomes,
+            dict(left=0.31, right=0.96, top=0.88, bottom=0.38), 3, 0.23)
 
 
 def fig_visibility(outdir):
-    _single(outdir, "p5_visibility", panel_visibility, W, H,
-            dict(left=0.25, right=0.97, top=0.92, bottom=0.30))
+    _single(outdir, "p5_visibility", panel_visibility,
+            dict(left=0.31, right=0.97, top=0.88, bottom=0.30), 2, 0.14)
 
 
 def fig_validation(outdir):
-    _single(outdir, "p6_validation", panel_validation, W, H,
-            dict(left=0.17, right=0.98, top=0.92, bottom=0.28))
+    _single(outdir, "p6_validation", panel_validation,
+            dict(left=0.30, right=0.97, top=0.88, bottom=0.30), 2, 0.14)
 
-
-# ==========================================================================
 
 FIGURES = {
     "overhead":    fig_overhead,
@@ -468,17 +428,21 @@ FIGURES = {
 
 
 def main():
+    global FONT
     ap = argparse.ArgumentParser()
     ap.add_argument("--outdir", default="figs_poster")
     ap.add_argument("--width", type=float, default=W,
                     help="panel width in inches, as placed on the poster")
     ap.add_argument("--height", type=float, default=H)
     ap.add_argument("--dpi", type=int, default=DPI)
+    ap.add_argument("--font", type=float, default=FONT,
+                    help="pt for every label; 28 = poster body, 24 = poster caption")
     ap.add_argument("--only", choices=sorted(FIGURES),
                     help="generate a single figure instead of all three")
     args = ap.parse_args()
 
     _set_geometry(args.width, args.height, args.dpi)
+    FONT = args.font
     style()
     names = [args.only] if args.only else list(FIGURES)
     for n in names:
